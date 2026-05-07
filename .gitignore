@@ -21,3 +21,8 @@ vendor/
 # IDEs directories
 .idea
 .vscode
+
+postgres_data/*
+init.sql
+
+.env

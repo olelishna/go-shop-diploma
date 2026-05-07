@@ -1,0 +1,17 @@
+basePath: /
+info:
+  contact:
+    email: svistunovaoliya@yandex.ru
+    name: Svistunova Olga
+  description: This is a go diploma.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Gophermart API
+  version: "1.0"
+paths: {}
+securityDefinitions:
+  BasicAuth:
+    type: basic
+swagger: "2.0"
