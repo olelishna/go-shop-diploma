@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -14,12 +15,12 @@ import (
 
 type contextKey string
 
-const userLoginKey contextKey = "user_login"
+const userLoginId contextKey = "user_id"
 
 // GenerateJWT func to generate JWT token.
-func GenerateJWT(login string) (string, error) {
+func GenerateJWT(userId int64) (string, error) {
 	claims := jwt.RegisteredClaims{
-		Subject:   login,
+		Subject:   strconv.FormatInt(userId, 10),
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(config.TokenExpiration)),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	}
@@ -75,23 +76,30 @@ func MiddlewareAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		login := claims.Subject
-		if login == "" {
+		userIdS := claims.Subject
+		if userIdS == "" {
 			helper.SendJSONError(w, "Unauthorized", http.StatusUnauthorized)
 
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), userLoginKey, login)
+		userId, err := strconv.ParseInt(userIdS, 10, 64)
+		if err != nil {
+			helper.SendJSONError(w, "Unauthorized", http.StatusUnauthorized)
+
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), userLoginId, userId)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 
 	return http.HandlerFunc(fn)
 }
 
-// GetUserLoginFromContext get login from context.
-func GetUserLoginFromContext(ctx context.Context) (string, bool) {
-	login, ok := ctx.Value(userLoginKey).(string)
+// GetUserIdFromContext get user ID from context.
+func GetUserIdFromContext(ctx context.Context) (int64, bool) {
+	id, ok := ctx.Value(userLoginId).(int64)
 
-	return login, ok
+	return id, ok
 }

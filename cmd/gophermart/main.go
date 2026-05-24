@@ -117,7 +117,7 @@ func run(ctx context.Context) error {
 
 		r.Route("/orders", func(r chi.Router) {
 			r.Use(auth.MiddlewareAuth)
-			r.Post("/", hand.SendOrders)
+			r.Post("/", hand.UploadOrder)
 			r.Get("/", hand.GetOrders)
 		})
 

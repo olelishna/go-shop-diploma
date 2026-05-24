@@ -2,10 +2,13 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
+	"unicode"
 
 	"github.com/olelishna/go-shop-diploma/internal/config"
 	"github.com/olelishna/go-shop-diploma/internal/logger"
@@ -68,7 +71,7 @@ func (h *Handler) Register(res http.ResponseWriter, req *http.Request) {
 
 	ctx := req.Context()
 
-	err = h.DB.Create(ctx, regReq.Login, string(hashed))
+	userId, err := h.DB.Create(ctx, regReq.Login, string(hashed))
 	if err != nil {
 		if errors.Is(err, repository.ErrNonUnique) {
 			helper.SendJSONError(res, "Login already taken", http.StatusConflict)
@@ -80,7 +83,7 @@ func (h *Handler) Register(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	token, err := auth.GenerateJWT(regReq.Login)
+	token, err := auth.GenerateJWT(userId)
 	if err != nil {
 		logger.Log.Error(err.Error(), zap.String("event", "jwt generation"))
 		helper.SendJSONError(
@@ -140,7 +143,7 @@ func (h *Handler) Login(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	token, err := auth.GenerateJWT(user.Login)
+	token, err := auth.GenerateJWT(user.ID)
 	if err != nil {
 		logger.Log.Error(err.Error(), zap.String("event", "JWT error user login"))
 		helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
@@ -159,20 +162,96 @@ func (h *Handler) Login(res http.ResponseWriter, req *http.Request) {
 	return
 }
 
-// SendOrders загрузка пользователем номера заказа для расчёта.
-func (h *Handler) SendOrders(res http.ResponseWriter, req *http.Request) {
-	login, ok := auth.GetUserLoginFromContext(req.Context())
+// UploadOrder загрузка пользователем номера заказа для расчёта.
+func (h *Handler) UploadOrder(res http.ResponseWriter, req *http.Request) {
+	userID, ok := auth.GetUserIdFromContext(req.Context())
 	if !ok {
 		helper.SendJSONError(res, "Unauthorized", http.StatusUnauthorized)
 
 		return
 	}
 
-	res.Header().Set("Content-Type", "application/json")
-	res.WriteHeader(http.StatusOK)
-	json.NewEncoder(res).Encode(map[string]string{
-		"login": login,
-	})
+	if req.Header.Get("Content-Type") != "text/plain" {
+		helper.SendJSONError(
+			res,
+			"Invalid Content-Type, expected text/plain",
+			http.StatusBadRequest,
+		)
+
+		return
+	}
+
+	body := make([]byte, 1024*1024)
+
+	n, err := req.Body.Read(body)
+	if err != nil && err.Error() != "EOF" {
+		helper.SendJSONError(res, "Failed to read body", http.StatusBadRequest)
+
+		return
+	}
+
+	orderNumber := strings.TrimSpace(string(body[:n]))
+	if orderNumber == "" {
+		helper.SendJSONError(res, "Empty order number", http.StatusBadRequest)
+
+		return
+	}
+
+	for _, ch := range orderNumber {
+		if !unicode.IsDigit(ch) {
+			helper.SendJSONError(
+				res,
+				"Order number must contain digits only",
+				http.StatusBadRequest,
+			)
+
+			return
+		}
+	}
+
+	if !helper.LuhnValid(orderNumber) {
+		helper.SendJSONError(res, "Invalid order number", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	ctx := req.Context()
+
+	existingUserID, err := h.DB.FindUserByOrderNumber(ctx, orderNumber)
+	if err == nil {
+		if existingUserID == userID {
+			res.WriteHeader(http.StatusOK)
+
+			return
+		}
+
+		helper.SendJSONError(
+			res,
+			"Order number already uploaded by another user",
+			http.StatusConflict,
+		)
+
+		return
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		logger.Log.Error(err.Error(), zap.String("event", "upload order"))
+		helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	err = h.DB.SaveOrder(ctx, userID, orderNumber)
+	if err != nil {
+		if errors.Is(err, repository.ErrNonUnique) {
+			helper.SendJSONError(res, err.Error(), http.StatusConflict)
+		} else {
+			logger.Log.Error(err.Error(), zap.String("event", "save order"))
+			helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
+		}
+
+		return
+	}
+
+	res.WriteHeader(http.StatusAccepted)
 }
 
 // GetOrders получение списка загруженных пользователем номеров заказов, статусов их обработки и
