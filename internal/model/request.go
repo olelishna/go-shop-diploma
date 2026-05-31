@@ -1,4 +1,4 @@
-// Package model implements requests
+// Package model implements models
 package model
 
 type RegisterRequest struct {
@@ -9,4 +9,9 @@ type RegisterRequest struct {
 type AuthRequest struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
+}
+
+type WithdrawRequest struct {
+	Order string  `json:"order"`
+	Sum   float64 `json:"sum"`
 }

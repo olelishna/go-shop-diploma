@@ -1,0 +1,4 @@
+ALTER TABLE users
+    ADD COLUMN current_balance NUMERIC(10, 2) NOT NULL DEFAULT 0;
+ALTER TABLE users
+    ADD COLUMN total_withdrawn NUMERIC(10, 2) NOT NULL DEFAULT 0;

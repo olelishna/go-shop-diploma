@@ -257,17 +257,111 @@ func (h *Handler) UploadOrder(res http.ResponseWriter, req *http.Request) {
 // GetOrders получение списка загруженных пользователем номеров заказов, статусов их обработки и
 // информации о начислениях.
 func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
-	return
+	userID, ok := auth.GetUserIdFromContext(req.Context())
+	if !ok {
+		helper.SendJSONError(res, "Unauthorized", http.StatusUnauthorized)
+
+		return
+	}
+
+	orders, err := h.DB.GetOrders(req.Context(), userID)
+	if err != nil {
+		logger.Log.Error(err.Error(), zap.String("event", "get orders"))
+		helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	if len(orders) == 0 {
+		res.WriteHeader(http.StatusNoContent)
+
+		return
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(res).Encode(orders); err != nil {
+		logger.Log.Error(err.Error(), zap.String("event", "upload order"))
+
+		return
+	}
 }
 
 // GetBalance получение текущего баланса счёта баллов лояльности пользователя.
 func (h *Handler) GetBalance(res http.ResponseWriter, req *http.Request) {
-	return
+	userID, ok := auth.GetUserIdFromContext(req.Context())
+	if !ok {
+		helper.SendJSONError(res, "Unauthorized", http.StatusUnauthorized)
+
+		return
+	}
+
+	balanceResp, err := h.DB.GetBalance(req.Context(), userID)
+	if err != nil {
+		logger.Log.Error(err.Error(), zap.String("event", "get balance"))
+		helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(res).Encode(balanceResp); err != nil {
+		logger.Log.Error(err.Error(), zap.String("event", "get balance"))
+
+		return
+	}
 }
 
 // Withdraw запрос на списание баллов с накопительного счёта в счёт оплаты нового заказа.
 func (h *Handler) Withdraw(res http.ResponseWriter, req *http.Request) {
-	return
+	userID, ok := auth.GetUserIdFromContext(req.Context())
+	if !ok {
+		helper.SendJSONError(res, "Unauthorized", http.StatusUnauthorized)
+
+		return
+	}
+
+	var wReq model.WithdrawRequest
+	if err := json.NewDecoder(req.Body).Decode(&wReq); err != nil {
+		helper.SendJSONError(res, "Invalid JSON format", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	if wReq.Sum <= 0 {
+		helper.SendJSONError(res, "Sum must be positive", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	if !helper.IsValidOrderNumber(wReq.Order) {
+		helper.SendJSONError(res, "Invalid order number", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	err := h.DB.Withdraw(req.Context(), userID, wReq)
+	if err != nil {
+		if errors.Is(err, repository.ErrInsufficientBalance) {
+			helper.SendJSONError(res, err.Error(), http.StatusPaymentRequired)
+
+			return
+		} else if errors.Is(err, repository.ErrNonUnique) {
+			helper.SendJSONError(res, err.Error(), http.StatusUnprocessableEntity)
+
+			return
+		}
+
+		logger.Log.Error(err.Error(), zap.String("event", "withdraw"))
+		helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	res.WriteHeader(http.StatusOK)
 }
 
 // GetWithdrawals получение информации о выводе средств с накопительного счёта пользователем.

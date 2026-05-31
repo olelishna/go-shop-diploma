@@ -3,6 +3,8 @@ package helper
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+	"unicode"
 
 	"github.com/olelishna/go-shop-diploma/internal/model"
 )
@@ -37,4 +39,19 @@ func LuhnValid(number string) bool {
 	}
 
 	return sum%10 == 0
+}
+
+func IsValidOrderNumber(number string) bool {
+	number = strings.TrimSpace(number)
+	if number == "" {
+		return false
+	}
+
+	for _, ch := range number {
+		if !unicode.IsDigit(ch) {
+			return false
+		}
+	}
+
+	return LuhnValid(number)
 }

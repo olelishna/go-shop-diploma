@@ -18,11 +18,10 @@ import (
 	"github.com/olelishna/go-shop-diploma/internal/model"
 )
 
-const (
-	QueryTimeOut = 5 * time.Second
+var (
+	ErrNonUnique           = errors.New("data conflict")
+	ErrInsufficientBalance = errors.New("insufficient balance")
 )
-
-var ErrNonUnique = errors.New("data conflict")
 
 // DBStorage db storage.
 type DBStorage struct {
@@ -142,4 +141,118 @@ func (r *DBStorage) SaveOrder(ctx context.Context, userID int64, orderNumber str
 	}
 
 	return nil
+}
+
+func (r *DBStorage) GetOrders(ctx context.Context, userID int64) ([]model.OrderResponse, error) {
+	query := `
+        SELECT number, status, COALESCE(accrual, 0) AS accrual, uploaded_at
+        FROM orders
+        WHERE user_id = $1
+        ORDER BY uploaded_at DESC
+    `
+
+	rows, err := r.pool.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var orders []model.OrderResponse
+
+	for rows.Next() {
+		var (
+			number     string
+			status     string
+			accrual    int
+			uploadedAt time.Time
+		)
+
+		err = rows.Scan(&number, &status, &accrual, &uploadedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		resp := model.OrderResponse{
+			Number:     number,
+			Status:     status,
+			UploadedAt: uploadedAt.Format(time.RFC3339),
+		}
+
+		if status == "PROCESSED" && accrual > 0 {
+			resp.Accrual = &accrual
+		}
+
+		orders = append(orders, resp)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return orders, nil
+}
+
+func (r *DBStorage) GetBalance(ctx context.Context, userID int64) (model.BalanceResponse, error) {
+	var current, withdrawn float64
+
+	query := `SELECT current_balance, total_withdrawn FROM users WHERE id = $1`
+
+	err := r.pool.QueryRow(ctx, query, userID).Scan(&current, &withdrawn)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			current, withdrawn = 0, 0
+		} else {
+			return model.BalanceResponse{}, err
+		}
+	}
+
+	resp := model.BalanceResponse{Current: current, Withdrawn: withdrawn}
+
+	return resp, nil
+}
+
+func (r *DBStorage) Withdraw(ctx context.Context, userID int64, wReq model.WithdrawRequest) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var currentBalance float64
+
+	err = tx.QueryRow(ctx, `SELECT current_balance FROM users WHERE id = $1 FOR UPDATE`, userID).
+		Scan(&currentBalance)
+	if err != nil {
+		return err
+	}
+
+	if currentBalance < wReq.Sum {
+		return fmt.Errorf("%w: insufficient funds", ErrInsufficientBalance)
+	}
+
+	insertWithdrawal := `INSERT INTO withdrawals (user_id, order_number, amount) VALUES ($1, $2, $3)`
+
+	_, err = tx.Exec(ctx, insertWithdrawal, userID, wReq.Order, wReq.Sum)
+	if err != nil {
+		if strings.Contains(err.Error(), "unique constraint") {
+			return fmt.Errorf("%w: order number already withdrawn", ErrNonUnique)
+		}
+
+		return err
+	}
+
+	updateBalance := `
+        UPDATE users
+        SET current_balance = current_balance - $1,
+            total_withdrawn = total_withdrawn + $1
+        WHERE id = $2
+    `
+
+	_, err = tx.Exec(ctx, updateBalance, wReq.Sum, userID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }

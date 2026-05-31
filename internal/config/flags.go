@@ -15,6 +15,8 @@ var (
 	FlagLogLevel string
 	// FlagDatabaseDSN dsn of database.
 	FlagDatabaseDSN string
+	// FlagAccrualSystemAddress address of accrual system.
+	FlagAccrualSystemAddress string
 )
 
 // ParseFlags global flags.
@@ -23,10 +25,11 @@ func ParseFlags() {
 	flag.StringVar(&FlagBaseURLResult, "b", "http://localhost:8080", "base address")
 	flag.StringVar(&FlagLogLevel, "l", "info", "log level")
 	flag.StringVar(&FlagDatabaseDSN, "d", "", "database DSN")
+	flag.StringVar(&FlagAccrualSystemAddress, "r", "", "accrual address")
 
 	flag.Parse()
 
-	if envRunAddr, ok := os.LookupEnv("SERVER_ADDRESS"); ok {
+	if envRunAddr, ok := os.LookupEnv("RUN_ADDRESS"); ok {
 		FlagRunAddr = envRunAddr
 	}
 
@@ -38,7 +41,11 @@ func ParseFlags() {
 		FlagLogLevel = envLogLevel
 	}
 
-	if envDatabaseDSN, ok := os.LookupEnv("DATABASE_DSN"); ok {
+	if envDatabaseDSN, ok := os.LookupEnv("DATABASE_URI"); ok {
 		FlagDatabaseDSN = envDatabaseDSN
+	}
+
+	if envAccrualSystemAddress, ok := os.LookupEnv("ACCRUAL_SYSTEM_ADDRESS"); ok {
+		FlagAccrualSystemAddress = envAccrualSystemAddress
 	}
 }
