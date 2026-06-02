@@ -18,6 +18,8 @@ import (
 	"github.com/olelishna/go-shop-diploma/internal/model"
 )
 
+const orderBatchSize = 100
+
 var (
 	ErrNonUnique           = errors.New("data conflict")
 	ErrInsufficientBalance = errors.New("insufficient balance")
@@ -143,9 +145,10 @@ func (r *DBStorage) SaveOrder(ctx context.Context, userID int64, orderNumber str
 	return nil
 }
 
+// GetOrders get users orders.
 func (r *DBStorage) GetOrders(ctx context.Context, userID int64) ([]model.OrderResponse, error) {
 	query := `
-        SELECT number, status, COALESCE(accrual, 0) AS accrual, uploaded_at
+        SELECT number, status, COALESCE(accrual, 0.0) AS accrual, uploaded_at
         FROM orders
         WHERE user_id = $1
         ORDER BY uploaded_at DESC
@@ -153,6 +156,10 @@ func (r *DBStorage) GetOrders(ctx context.Context, userID int64) ([]model.OrderR
 
 	rows, err := r.pool.Query(ctx, query, userID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+
 		return nil, err
 	}
 
@@ -164,7 +171,7 @@ func (r *DBStorage) GetOrders(ctx context.Context, userID int64) ([]model.OrderR
 		var (
 			number     string
 			status     string
-			accrual    int
+			accrual    *float64
 			uploadedAt time.Time
 		)
 
@@ -179,8 +186,8 @@ func (r *DBStorage) GetOrders(ctx context.Context, userID int64) ([]model.OrderR
 			UploadedAt: uploadedAt.Format(time.RFC3339),
 		}
 
-		if status == "PROCESSED" && accrual > 0 {
-			resp.Accrual = &accrual
+		if status == model.StatusProcessed && accrual != nil && *accrual > 0 {
+			resp.Accrual = accrual
 		}
 
 		orders = append(orders, resp)
@@ -193,6 +200,7 @@ func (r *DBStorage) GetOrders(ctx context.Context, userID int64) ([]model.OrderR
 	return orders, nil
 }
 
+// GetBalance get current balance of user.
 func (r *DBStorage) GetBalance(ctx context.Context, userID int64) (model.BalanceResponse, error) {
 	var current, withdrawn float64
 
@@ -212,6 +220,7 @@ func (r *DBStorage) GetBalance(ctx context.Context, userID int64) (model.Balance
 	return resp, nil
 }
 
+// Withdraw do withdraw.
 func (r *DBStorage) Withdraw(ctx context.Context, userID int64, wReq model.WithdrawRequest) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -255,4 +264,164 @@ func (r *DBStorage) Withdraw(ctx context.Context, userID int64, wReq model.Withd
 	}
 
 	return tx.Commit(ctx)
+}
+
+// GetWithdrawals get withdrawals of the user.
+func (r *DBStorage) GetWithdrawals(
+	ctx context.Context,
+	userID int64,
+) ([]model.WithdrawalResponse, error) {
+	query := `
+        SELECT order_number, amount, processed_at
+        FROM withdrawals
+        WHERE user_id = $1
+        ORDER BY processed_at DESC
+    `
+
+	rows, err := r.pool.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var withdrawals []model.WithdrawalResponse
+
+	for rows.Next() {
+		var (
+			orderNumber string
+			amount      float64
+			processedAt time.Time
+		)
+
+		err = rows.Scan(&orderNumber, &amount, &processedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		withdrawals = append(withdrawals, model.WithdrawalResponse{
+			Order:       orderNumber,
+			Sum:         amount,
+			ProcessedAt: processedAt.Format(time.RFC3339),
+		})
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return withdrawals, nil
+}
+
+// FetchPendingOrders get all unprocessed orders to check status.
+func (r *DBStorage) FetchPendingOrders(ctx context.Context) ([]model.PendingOrderResponse, error) {
+	query := `
+        SELECT id, number, status, user_id, uploaded_at
+        FROM orders
+        WHERE status IN ($1, $2)
+          AND uploaded_at < NOW() - INTERVAL '5 seconds'
+        ORDER BY uploaded_at
+        LIMIT $3
+        FOR UPDATE SKIP LOCKED
+    `
+
+	rows, err := r.pool.Query(ctx, query, model.StatusNew, model.StatusProcessing, orderBatchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []model.PendingOrderResponse
+
+	for rows.Next() {
+		var o model.PendingOrderResponse
+		if err := rows.Scan(&o.ID, &o.Number, &o.Status, &o.UserID, &o.UploadedAt); err != nil {
+			return nil, err
+		}
+
+		orders = append(orders, o)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return orders, nil
+}
+
+// UpdateOrderStatus update order status.
+func (r *DBStorage) UpdateOrderStatus(ctx context.Context, id int64, s string) error {
+	_, err := r.pool.Exec(ctx, `
+        UPDATE orders
+        SET status = $1
+        WHERE id = $2
+    `, s, id)
+	if err != nil {
+		return fmt.Errorf("failed to update order status: %v", err)
+	}
+
+	return nil
+}
+
+// ApplyAccrual apply accrual.
+func (r *DBStorage) ApplyAccrual(
+	ctx context.Context,
+	orderID int64,
+	userID int64,
+	accrual float64,
+) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var currentBalance float64
+
+	err = tx.QueryRow(ctx, `SELECT current_balance FROM users WHERE id = $1 FOR UPDATE`, userID).
+		Scan(&currentBalance)
+	if err != nil {
+		return err
+	}
+
+	updateOrder := `
+        UPDATE orders
+        SET status = $1, accrual = $2
+        WHERE id = $3
+    `
+
+	_, err = tx.Exec(ctx, updateOrder, model.StatusProcessed, accrual, orderID)
+	if err != nil {
+		return err
+	}
+
+	updateUser := `
+        UPDATE users
+        SET current_balance = current_balance + $1
+        WHERE id = $2
+    `
+
+	_, err = tx.Exec(ctx, updateUser, accrual, userID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// GetOrderStatusByID get order status.
+func (r *DBStorage) GetOrderStatusByID(
+	ctx context.Context,
+	id int64,
+) (*model.OrderStatusResponse, error) {
+	query := `SELECT status FROM orders WHERE id = $1`
+
+	var os model.OrderStatusResponse
+
+	err := r.pool.QueryRow(ctx, query, id).Scan(&os.Status)
+	if err != nil {
+		return nil, err
+	}
+
+	return &os, nil
 }

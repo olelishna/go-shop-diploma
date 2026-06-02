@@ -18,6 +18,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/olelishna/go-shop-diploma/docs"
+	"github.com/olelishna/go-shop-diploma/internal/client/accrual"
 	"github.com/olelishna/go-shop-diploma/internal/compress"
 	"github.com/olelishna/go-shop-diploma/internal/config"
 	"github.com/olelishna/go-shop-diploma/internal/handler"
@@ -90,7 +91,9 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	hand := handler.NewHandler(dbs)
+	client := accrual.NewClient(config.FlagAccrualSystemAddress)
+
+	hand := handler.NewHandler(ctx, dbs, client)
 
 	r := chi.NewRouter()
 

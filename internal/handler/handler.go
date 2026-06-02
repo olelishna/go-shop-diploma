@@ -2,14 +2,18 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
+	"github.com/olelishna/go-shop-diploma/internal/client/accrual"
 	"github.com/olelishna/go-shop-diploma/internal/config"
 	"github.com/olelishna/go-shop-diploma/internal/logger"
 	"github.com/olelishna/go-shop-diploma/internal/model"
@@ -20,15 +24,28 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	updateOrdersWorkerCount = 2
+	accrualRequestDelayTime = 100 * time.Millisecond
+	dbRequestDelayTime      = 100 * time.Millisecond
+)
+
 // Handler object.
 type Handler struct {
-	DB *repository.DBStorage
+	DB            *repository.DBStorage
+	AccrualClient *accrual.Client
+	locks         sync.Map
 }
 
 // NewHandler function.
-func NewHandler(db *repository.DBStorage) *Handler {
+func NewHandler(ctx context.Context, db *repository.DBStorage, accClient *accrual.Client) *Handler {
 	handler := &Handler{
-		DB: db,
+		DB:            db,
+		AccrualClient: accClient,
+	}
+
+	for w := 1; w <= updateOrdersWorkerCount; w++ {
+		go handler.processOrders(ctx, w)
 	}
 
 	return handler
@@ -366,5 +383,145 @@ func (h *Handler) Withdraw(res http.ResponseWriter, req *http.Request) {
 
 // GetWithdrawals получение информации о выводе средств с накопительного счёта пользователем.
 func (h *Handler) GetWithdrawals(res http.ResponseWriter, req *http.Request) {
-	return
+	userID, ok := auth.GetUserIdFromContext(req.Context())
+	if !ok {
+		helper.SendJSONError(res, "Unauthorized", http.StatusUnauthorized)
+
+		return
+	}
+
+	withdrawals, err := h.DB.GetWithdrawals(req.Context(), userID)
+	if err != nil {
+		logger.Log.Error(err.Error(), zap.String("event", "get withdrawals"))
+		helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
+	}
+
+	if len(withdrawals) == 0 {
+		res.WriteHeader(http.StatusNoContent)
+
+		return
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(res).Encode(withdrawals); err != nil {
+		logger.Log.Error(err.Error(), zap.String("event", "get withdrawals"))
+
+		return
+	}
+}
+
+func (h *Handler) processOrders(ctx context.Context, id int) {
+	logger.Log.Info("Starting processing orders worker", zap.Int("id", id))
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Log.Info("Shutting down worker", zap.Int("id", id))
+
+			return
+		default:
+		}
+
+		orders, err := h.DB.FetchPendingOrders(ctx)
+		if err != nil {
+			logger.Log.Error(
+				fmt.Sprintf("failed to fetch pending orders: %v", err),
+				zap.String("event", "process orders"),
+			)
+
+			continue
+		}
+
+		for _, order := range orders {
+			h.processOrder(ctx, order)
+
+			time.Sleep(accrualRequestDelayTime)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(dbRequestDelayTime):
+		}
+
+		logger.Log.Info("Worker job is done", zap.Int("id", id))
+	}
+}
+
+func (h *Handler) processOrder(ctx context.Context, order model.PendingOrderResponse) {
+	mu := h.getLock(order.Number)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Double-check: статус мог измениться между fetch и блокировкой
+	current, err := h.DB.GetOrderStatusByID(ctx, order.ID)
+	if err != nil {
+		logger.Log.Error(
+			fmt.Sprintf("failed to reload order %s after lock: %v", order.Number, err),
+			zap.String("event", "process order"),
+		)
+
+		return
+	}
+
+	if current.Status == model.StatusProcessed || current.Status == model.StatusInvalid {
+		logger.Log.Debug(
+			fmt.Sprintf("order %s already final (status: %s), skip", order.Number, current.Status),
+			zap.String("event", "process order"),
+		)
+
+		return
+	}
+
+	resp, err := h.AccrualClient.GetAccrual(ctx, order.Number)
+	if err != nil {
+		logger.Log.Warn(
+			fmt.Sprintf("loyalty request failed for order %s: %v", order.Number, err),
+			zap.String("event", "process orders"),
+		)
+
+		err = h.DB.UpdateOrderStatus(ctx, order.ID, model.StatusProcessing)
+		if err != nil {
+			logger.Log.Error(err.Error(), zap.String("event", "process order"))
+		}
+
+		return
+	}
+
+	switch resp.Status {
+	case model.StatusProcessed:
+		err = h.DB.ApplyAccrual(ctx, order.ID, order.UserID, resp.Accrual)
+	case model.StatusInvalid:
+		err = h.DB.UpdateOrderStatus(ctx, order.ID, model.StatusInvalid)
+	case model.StatusProcessing:
+		err = h.DB.UpdateOrderStatus(ctx, order.ID, model.StatusProcessing)
+	case model.StatusNew:
+		err = h.DB.UpdateOrderStatus(ctx, order.ID, model.StatusProcessing)
+	default:
+		logger.Log.Warn(
+			fmt.Sprintf("unknown status %s for order %s", resp.Status, order.Number),
+			zap.String("event", "process order"),
+		)
+
+		err = h.DB.UpdateOrderStatus(ctx, order.ID, model.StatusProcessing)
+	}
+
+	if err != nil {
+		logger.Log.Error(err.Error(), zap.String("event", "process order"))
+	}
+}
+
+func (h *Handler) getLock(orderNumber string) *sync.Mutex {
+	if v, ok := h.locks.Load(orderNumber); ok {
+		return v.(*sync.Mutex)
+	}
+
+	v, _ := h.locks.LoadOrStore(orderNumber, &sync.Mutex{})
+
+	return v.(*sync.Mutex)
 }
