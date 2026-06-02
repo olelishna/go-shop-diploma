@@ -16,6 +16,10 @@ func SendJSONError(res http.ResponseWriter, message string, status int) {
 }
 
 func LuhnValid(number string) bool {
+	if len(number) == 0 {
+		return false
+	}
+
 	var (
 		sum       int
 		alternate bool

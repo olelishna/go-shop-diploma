@@ -368,7 +368,7 @@ func (r *DBStorage) ApplyAccrual(
 	ctx context.Context,
 	orderID int64,
 	userID int64,
-	accrual float64,
+	accrual *float64,
 ) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

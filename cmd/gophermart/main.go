@@ -95,53 +95,7 @@ func run(ctx context.Context) error {
 
 	hand := handler.NewHandler(ctx, dbs, client)
 
-	r := chi.NewRouter()
-
-	r.Use(middleware.Timeout(RequestTimeout))
-
-	r.Get("/", func(res http.ResponseWriter, req *http.Request) {
-		res.Write([]byte("hi"))
-	})
-
-	r.Route("/api/user", func(r chi.Router) {
-		r.Use(
-			middleware.CleanPath,
-			middleware.Recoverer,
-			logger.MiddlewareLogger,
-			compress.MiddlewareGzip,
-		)
-
-		// Public routes
-
-		r.Post("/register", hand.Register)
-		r.Post("/login", hand.Login)
-
-		// Secure routes
-
-		r.Route("/orders", func(r chi.Router) {
-			r.Use(auth.MiddlewareAuth)
-			r.Post("/", hand.UploadOrder)
-			r.Get("/", hand.GetOrders)
-		})
-
-		r.Route("/balance", func(r chi.Router) {
-			r.Use(auth.MiddlewareAuth)
-			r.Get("/", hand.GetBalance)
-			r.Post("/withdraw", hand.Withdraw)
-		})
-
-		r.Route("/withdrawals", func(r chi.Router) {
-			r.Use(auth.MiddlewareAuth)
-			r.Get("/", hand.GetWithdrawals)
-		})
-	})
-
-	uRes, _ := url.JoinPath(config.FlagBaseURLResult, "swagger/doc.json")
-
-	// Swagger
-	r.Get("/swagger/*", httpSwagger.Handler(
-		httpSwagger.URL(uRes),
-	))
+	r := newRouter(hand)
 
 	nCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, os.Kill)
 	defer stop()
@@ -181,4 +135,54 @@ func run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func newRouter(h *handler.Handler) *chi.Mux {
+	r := chi.NewRouter()
+
+	r.Use(middleware.Timeout(RequestTimeout))
+
+	r.Get("/", func(res http.ResponseWriter, req *http.Request) {
+		res.Write([]byte("hi"))
+	})
+
+	r.Route("/api/user", func(r chi.Router) {
+		r.Use(
+			middleware.CleanPath,
+			middleware.Recoverer,
+			logger.MiddlewareLogger,
+			compress.MiddlewareGzip,
+		)
+
+		// Public routes
+		r.Post("/register", h.Register)
+		r.Post("/login", h.Login)
+
+		// Secure routes
+		r.Route("/orders", func(r chi.Router) {
+			r.Use(auth.MiddlewareAuth)
+			r.Post("/", h.UploadOrder)
+			r.Get("/", h.GetOrders)
+		})
+
+		r.Route("/balance", func(r chi.Router) {
+			r.Use(auth.MiddlewareAuth)
+			r.Get("/", h.GetBalance)
+			r.Post("/withdraw", h.Withdraw)
+		})
+
+		r.Route("/withdrawals", func(r chi.Router) {
+			r.Use(auth.MiddlewareAuth)
+			r.Get("/", h.GetWithdrawals)
+		})
+	})
+
+	uRes, _ := url.JoinPath(config.FlagBaseURLResult, "swagger/doc.json")
+
+	// Swagger
+	r.Get("/swagger/*", httpSwagger.Handler(
+		httpSwagger.URL(uRes),
+	))
+
+	return r
 }

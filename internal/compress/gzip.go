@@ -2,6 +2,7 @@
 package compress
 
 import (
+	"bytes"
 	"compress/gzip"
 	"io"
 	"net/http"
@@ -73,7 +74,7 @@ func MiddlewareGzip(next http.Handler) http.Handler {
 		ow := w
 
 		acceptEncoding := r.Header.Get("Accept-Encoding")
-		supportsGzip := strings.Contains(acceptEncoding, "gzip")
+		supportsGzip := strings.Contains(strings.ToLower(acceptEncoding), "gzip")
 
 		if supportsGzip {
 			cw := newCompressWriter(w)
@@ -87,6 +88,12 @@ func MiddlewareGzip(next http.Handler) http.Handler {
 		sendsGzip := strings.Contains(contentEncoding, "gzip")
 
 		if sendsGzip {
+			if r.Body == nil {
+				http.Error(w, "request body is empty", http.StatusBadRequest)
+
+				return
+			}
+
 			cr, err := newCompressReader(r.Body)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -97,6 +104,10 @@ func MiddlewareGzip(next http.Handler) http.Handler {
 			r.Body = cr
 
 			defer cr.Close()
+		} else {
+			if r.Body == nil {
+				r.Body = io.NopCloser(bytes.NewReader(nil))
+			}
 		}
 
 		next.ServeHTTP(ow, r)

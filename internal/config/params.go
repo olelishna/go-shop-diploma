@@ -17,7 +17,7 @@ var JWTSecretKey = "default-secret-key-change-me"
 
 // GetEnvParams func to get default params from env.
 func GetEnvParams() {
-	if envJWTSecretKey, ok := os.LookupEnv("JWT_KEY"); ok {
+	if envJWTSecretKey := os.Getenv("JWT_KEY"); envJWTSecretKey != "" {
 		JWTSecretKey = envJWTSecretKey
 	}
 }

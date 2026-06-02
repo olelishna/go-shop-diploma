@@ -17,3 +17,20 @@ gophermarttest -test.v -test.run=^TestGophermart$ \
 -accrual-port=8091 \
 -accrual-database-uri="postgres://gophermart:q1w2e3r4t5@localhost/gophermart?sslmode=disable"
 ```
+
+# Run tests
+
+```bash
+go test -count=1 ./...
+
+go test -cover ./...
+
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out -o coverage.html
+```
+
+# Mockery
+
+```bash
+mockery
+```
