@@ -1,4 +1,26 @@
-// Package main implements app
+//	@title			Gophermart API
+//	@version		1.0
+//	@description	This is a loyalty program backend (gophermart-like)
+//	@description	with order uploads, accrual processing, balance, and withdrawals.
+//	@description	Uses JWT for authentication via cookie or Authorization header.
+//	@termsOfService	http://swagger.io/terms/
+
+//	@contact.name	Svistunova Olga
+//	@contact.email	svistunovaoliya@yandex.ru
+
+//	@license.name	Apache 2.0
+//	@license.url	http://www.apache.org/licenses/LICENSE-2.0.html
+
+//	@host		localhost:8080
+//	@BasePath	/
+
+//	@securityDefinitions.apikey	ApiKeyAuth
+//	@in							header
+//	@name						Authorization
+//	@description				Enter JWT token in format: Bearer <token>. Also supports cookie 'auth_token'.
+
+// @externalDocs.description	OpenAPI Specification
+// @externalDocs.url			https://swagger.io/resources/open-api/
 package main
 
 import (
@@ -36,21 +58,6 @@ const (
 )
 
 var errDSNReq = errors.New("database DSN is required")
-
-//	@title			Gophermart API
-//	@version		1.0
-//	@description	This is a go diploma.
-//	@termsOfService	http://swagger.io/terms/
-
-//	@contact.name	Svistunova Olga
-//	@contact.email	svistunovaoliya@yandex.ru
-
-//	@license.name	Apache 2.0
-//	@license.url	http://www.apache.org/licenses/LICENSE-2.0.html
-
-//	@BasePath	/
-
-//	@securityDefinitions.basic	BasicAuth
 
 func main() {
 	config.ParseFlags()

@@ -25,6 +25,6 @@ build:
         echo -e "$(GREEN)✔ Build — OK$(RESET)\n" || (echo -e "$(RED)✘ Build — FAILED$(RESET)\n" && exit 1)
 
 swagger:
-	@swag init -g cmd/gophermart/main.go --output docs --propertyStrategy snakecase
+	@swag init -g cmd/gophermart/main.go -o docs
 
 check: mock_gen run_test build swagger

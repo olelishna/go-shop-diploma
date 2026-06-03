@@ -3,9 +3,9 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -46,20 +46,27 @@ func SetAuthCookie(w http.ResponseWriter, token string) {
 // MiddlewareAuth check auth.
 func MiddlewareAuth(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(config.CookieName)
-		if err != nil {
-			if errors.Is(err, http.ErrNoCookie) {
-				helper.SendJSONError(w, "Unauthorized", http.StatusUnauthorized)
+		tokenString := ""
 
-				return
+		// Сначала проверяем Authorization header (для Swagger UI и API-тестов)
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+
+		// Если токен не получен из Authorization, пробуем получить из cookie
+		if tokenString == "" {
+			cookie, err := r.Cookie(config.CookieName)
+			if err == nil {
+				tokenString = cookie.Value
 			}
+		}
 
+		if tokenString == "" {
 			helper.SendJSONError(w, "Unauthorized", http.StatusUnauthorized)
 
 			return
 		}
-
-		tokenString := cookie.Value
 
 		claims := &jwt.RegisteredClaims{}
 

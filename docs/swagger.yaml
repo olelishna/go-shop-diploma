@@ -1,17 +1,303 @@
 basePath: /
+definitions:
+  model.AuthRequest:
+    properties:
+      login:
+        type: string
+      password:
+        type: string
+    type: object
+  model.BalanceResponse:
+    properties:
+      current:
+        type: number
+      withdrawn:
+        type: number
+    type: object
+  model.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  model.OrderResponse:
+    properties:
+      accrual:
+        type: number
+      number:
+        type: string
+      status:
+        type: string
+      uploaded_at:
+        type: string
+    type: object
+  model.RegisterRequest:
+    properties:
+      login:
+        type: string
+      password:
+        type: string
+    type: object
+  model.WithdrawRequest:
+    properties:
+      order:
+        type: string
+      sum:
+        type: number
+    type: object
+  model.WithdrawalResponse:
+    properties:
+      order:
+        type: string
+      processed_at:
+        type: string
+      sum:
+        type: number
+    type: object
+externalDocs:
+  description: OpenAPI Specification
+  url: https://swagger.io/resources/open-api/
+host: localhost:8080
 info:
   contact:
     email: svistunovaoliya@yandex.ru
     name: Svistunova Olga
-  description: This is a go diploma.
+  description: |-
+    This is a loyalty program backend (gophermart-like)
+    with order uploads, accrual processing, balance, and withdrawals.
+    Uses JWT for authentication via cookie or Authorization header.
   license:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
   termsOfService: http://swagger.io/terms/
   title: Gophermart API
   version: "1.0"
-paths: {}
+paths:
+  /api/user/balance:
+    get:
+      description: Returns current and withdrawn balance for authenticated user. Supports
+        cookie or Authorization header.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User balance
+          schema:
+            $ref: '#/definitions/model.BalanceResponse'
+        "401":
+          description: Unauthorized (invalid or missing JWT)
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get current loyalty points balance
+      tags:
+      - Balance
+  /api/user/balance/withdraw:
+    post:
+      consumes:
+      - application/json
+      description: Requests points withdrawal (validated sum and order number). Requires
+        JWT token.
+      parameters:
+      - description: Withdrawal request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/model.WithdrawRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success
+        "401":
+          description: Unauthorized (invalid or missing JWT)
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "402":
+          description: Insufficient balance
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "422":
+          description: Invalid request (sum ≤ 0 or invalid order number)
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Request withdrawal of points for new order
+      tags:
+      - Balance
+  /api/user/login:
+    post:
+      consumes:
+      - application/json
+      description: Logs in existing user and sets auth cookie using bcrypt
+      parameters:
+      - description: User login request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/model.AuthRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Authentication successful
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or missing fields
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Invalid login/password
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      summary: Authenticate user
+      tags:
+      - Authentication
+  /api/user/orders:
+    get:
+      description: Returns list of orders for authenticated user. Supports cookie
+        or Authorization header.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of orders
+          schema:
+            items:
+              $ref: '#/definitions/model.OrderResponse'
+            type: array
+        "204":
+          description: No orders found
+        "401":
+          description: Unauthorized (invalid or missing JWT)
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get uploaded orders with status and accrual info
+      tags:
+      - Orders
+    post:
+      consumes:
+      - text/plain
+      description: |-
+        Uploads order number (digits only, Luhn-validated) with plain text body.
+        Requires JWT token in cookie or Authorization header.
+      parameters:
+      - description: Order number (digits only)
+        in: body
+        name: orderNumber
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Order already uploaded by same user
+        "202":
+          description: Accepted for processing
+        "400":
+          description: Invalid Content-Type, empty body, or non-digit characters
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Unauthorized (invalid or missing JWT)
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "409":
+          description: Order already uploaded by another user
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "422":
+          description: Invalid order number (Luhn check failed)
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Upload order number for accrual calculation
+      tags:
+      - Orders
+  /api/user/register:
+    post:
+      consumes:
+      - application/json
+      description: Registers a new user with bcrypt-hashed password and sets auth
+        cookie
+      parameters:
+      - description: User registration request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/model.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Registration successful
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or missing fields
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "409":
+          description: Login already taken
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      summary: Register new user
+      tags:
+      - Authentication
+  /api/user/withdrawals:
+    get:
+      description: Returns list of withdrawals for authenticated user. Supports cookie
+        or Authorization header.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Withdrawal history
+          schema:
+            items:
+              $ref: '#/definitions/model.WithdrawalResponse'
+            type: array
+        "204":
+          description: No withdrawals found
+        "401":
+          description: Unauthorized (invalid or missing JWT)
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get withdrawal history
+      tags:
+      - Balance
 securityDefinitions:
-  BasicAuth:
-    type: basic
+  ApiKeyAuth:
+    description: 'Enter JWT token in format: Bearer <token>. Also supports cookie
+      ''auth_token''.'
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"

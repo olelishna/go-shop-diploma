@@ -52,6 +52,17 @@ func NewHandler(ctx context.Context, db *repository.DBStorage, accClient *accrua
 }
 
 // Register регистрация пользователя.
+//
+//	@Summary		Register new user
+//	@Description	Registers a new user with bcrypt-hashed password and sets auth cookie
+//	@Tags			Authentication
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		model.RegisterRequest	true	"User registration request"
+//	@Success		200		{object}	map[string]string		"Registration successful"
+//	@Failure		400		{object}	model.ErrorResponse		"Invalid JSON or missing fields"
+//	@Failure		409		{object}	model.ErrorResponse		"Login already taken"
+//	@Router			/api/user/register [post]
 func (h *Handler) Register(res http.ResponseWriter, req *http.Request) {
 	var regReq model.RegisterRequest
 
@@ -122,6 +133,17 @@ func (h *Handler) Register(res http.ResponseWriter, req *http.Request) {
 }
 
 // Login аутентификация пользователя.
+//
+//	@Summary		Authenticate user
+//	@Description	Logs in existing user and sets auth cookie using bcrypt
+//	@Tags			Authentication
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		model.AuthRequest	true	"User login request"
+//	@Success		200		{object}	map[string]string	"Authentication successful"
+//	@Failure		400		{object}	model.ErrorResponse	"Invalid JSON or missing fields"
+//	@Failure		401		{object}	model.ErrorResponse	"Invalid login/password"
+//	@Router			/api/user/login [post]
 func (h *Handler) Login(res http.ResponseWriter, req *http.Request) {
 	var authReq model.AuthRequest
 
@@ -180,6 +202,24 @@ func (h *Handler) Login(res http.ResponseWriter, req *http.Request) {
 }
 
 // UploadOrder загрузка пользователем номера заказа для расчёта.
+//
+//	@Summary		Upload order number for accrual calculation
+//	@Description	Uploads order number (digits only, Luhn-validated) with plain text body.
+//	@Description	Requires JWT token in cookie or Authorization header.
+//	@Tags			Orders
+//	@Accept			plain
+//	@Produce		json
+//
+//	@Security		ApiKeyAuth
+//
+//	@Param			orderNumber	body	string	true	"Order number (digits only)"
+//	@Success		202			"Accepted for processing"
+//	@Success		200			"Order already uploaded by same user"
+//	@Failure		400			{object}	model.ErrorResponse	"Invalid Content-Type, empty body, or non-digit characters"
+//	@Failure		401			{object}	model.ErrorResponse	"Unauthorized (invalid or missing JWT)"
+//	@Failure		409			{object}	model.ErrorResponse	"Order already uploaded by another user"
+//	@Failure		422			{object}	model.ErrorResponse	"Invalid order number (Luhn check failed)"
+//	@Router			/api/user/orders [post]
 func (h *Handler) UploadOrder(res http.ResponseWriter, req *http.Request) {
 	userID, ok := auth.GetUserIdFromContext(req.Context())
 	if !ok {
@@ -273,6 +313,19 @@ func (h *Handler) UploadOrder(res http.ResponseWriter, req *http.Request) {
 
 // GetOrders получение списка загруженных пользователем номеров заказов, статусов их обработки и
 // информации о начислениях.
+//
+//	@Summary		Get uploaded orders with status and accrual info
+//	@Description	Returns list of orders for authenticated user. Supports cookie or Authorization header.
+//	@Tags			Orders
+//	@Produce		json
+//
+//	@Security		ApiKeyAuth
+//
+//	@Success		200	{array}	model.OrderResponse	"List of orders"
+//	@Success		204	"No orders found"
+//	@Failure		401	{object}	model.ErrorResponse	"Unauthorized (invalid or missing JWT)"
+//	@Failure		500	{object}	model.ErrorResponse	"Internal server error"
+//	@Router			/api/user/orders [get]
 func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
 	userID, ok := auth.GetUserIdFromContext(req.Context())
 	if !ok {
@@ -306,6 +359,18 @@ func (h *Handler) GetOrders(res http.ResponseWriter, req *http.Request) {
 }
 
 // GetBalance получение текущего баланса счёта баллов лояльности пользователя.
+//
+//	@Summary		Get current loyalty points balance
+//	@Description	Returns current and withdrawn balance for authenticated user. Supports cookie or Authorization header.
+//	@Tags			Balance
+//	@Produce		json
+//
+//	@Security		ApiKeyAuth
+//
+//	@Success		200	{object}	model.BalanceResponse	"User balance"
+//	@Failure		401	{object}	model.ErrorResponse		"Unauthorized (invalid or missing JWT)"
+//	@Failure		500	{object}	model.ErrorResponse		"Internal server error"
+//	@Router			/api/user/balance [get]
 func (h *Handler) GetBalance(res http.ResponseWriter, req *http.Request) {
 	userID, ok := auth.GetUserIdFromContext(req.Context())
 	if !ok {
@@ -333,6 +398,21 @@ func (h *Handler) GetBalance(res http.ResponseWriter, req *http.Request) {
 }
 
 // Withdraw запрос на списание баллов с накопительного счёта в счёт оплаты нового заказа.
+//
+//	@Summary		Request withdrawal of points for new order
+//	@Description	Requests points withdrawal (validated sum and order number). Requires JWT token.
+//	@Tags			Balance
+//	@Accept			json
+//	@Produce		json
+//
+//	@Security		ApiKeyAuth
+//
+//	@Param			request	body	model.WithdrawRequest	true	"Withdrawal request"
+//	@Success		200		"Success"
+//	@Failure		401		{object}	model.ErrorResponse	"Unauthorized (invalid or missing JWT)"
+//	@Failure		402		{object}	model.ErrorResponse	"Insufficient balance"
+//	@Failure		422		{object}	model.ErrorResponse	"Invalid request (sum ≤ 0 or invalid order number)"
+//	@Router			/api/user/balance/withdraw [post]
 func (h *Handler) Withdraw(res http.ResponseWriter, req *http.Request) {
 	userID, ok := auth.GetUserIdFromContext(req.Context())
 	if !ok {
@@ -382,6 +462,19 @@ func (h *Handler) Withdraw(res http.ResponseWriter, req *http.Request) {
 }
 
 // GetWithdrawals получение информации о выводе средств с накопительного счёта пользователем.
+//
+//	@Summary		Get withdrawal history
+//	@Description	Returns list of withdrawals for authenticated user. Supports cookie or Authorization header.
+//	@Tags			Balance
+//	@Produce		json
+//
+//	@Security		ApiKeyAuth
+//
+//	@Success		200	{array}	model.WithdrawalResponse	"Withdrawal history"
+//	@Success		204	"No withdrawals found"
+//	@Failure		401	{object}	model.ErrorResponse	"Unauthorized (invalid or missing JWT)"
+//	@Failure		500	{object}	model.ErrorResponse	"Internal server error"
+//	@Router			/api/user/withdrawals [get]
 func (h *Handler) GetWithdrawals(res http.ResponseWriter, req *http.Request) {
 	userID, ok := auth.GetUserIdFromContext(req.Context())
 	if !ok {
