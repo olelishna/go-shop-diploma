@@ -3,7 +3,6 @@ package handler
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -275,7 +274,14 @@ func (h *Handler) UploadOrder(res http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
 	existingUserID, err := h.DB.FindUserByOrderNumber(ctx, orderNumber)
-	if err == nil {
+	if err != nil {
+		logger.Log.Error(err.Error(), zap.String("event", "upload order"))
+		helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	if existingUserID != 0 {
 		if existingUserID == userID {
 			res.WriteHeader(http.StatusOK)
 
@@ -287,11 +293,6 @@ func (h *Handler) UploadOrder(res http.ResponseWriter, req *http.Request) {
 			"Order number already uploaded by another user",
 			http.StatusConflict,
 		)
-
-		return
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		logger.Log.Error(err.Error(), zap.String("event", "upload order"))
-		helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
 
 		return
 	}

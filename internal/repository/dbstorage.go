@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -47,6 +48,12 @@ func applyMigrations() error {
 
 	m, err := migrate.New("file://migrations", config.FlagDatabaseDSN)
 	if err != nil {
+		if _, ok := errors.AsType[*fs.PathError](err); ok {
+			logger.Log.Warn("no migrations or path")
+
+			return nil
+		}
+
 		return err
 	}
 
@@ -116,6 +123,10 @@ func (r *DBStorage) FindUserByOrderNumber(ctx context.Context, orderNumber strin
 	err := r.pool.QueryRow(ctx, `SELECT user_id FROM orders WHERE number = $1`, orderNumber).
 		Scan(&userID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+
 		return 0, err
 	}
 
@@ -130,7 +141,8 @@ func (r *DBStorage) SaveOrder(ctx context.Context, userID int64, orderNumber str
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
 			var conflictUserID int64
-			_ = r.pool.QueryRow(ctx, query, orderNumber).Scan(&conflictUserID, nil)
+			_ = r.pool.QueryRow(ctx, `SELECT user_id FROM orders WHERE number = $1`, orderNumber).
+				Scan(&conflictUserID)
 
 			if conflictUserID == userID {
 				return nil
