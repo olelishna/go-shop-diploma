@@ -28,7 +28,7 @@ var (
 
 // DBStorage db storage.
 type DBStorage struct {
-	pool *pgxpool.Pool
+	Pool *pgxpool.Pool
 }
 
 // NewDBStorage func to create DB connection.
@@ -39,7 +39,7 @@ func NewDBStorage(pool *pgxpool.Pool) (*DBStorage, error) {
 	}
 
 	return &DBStorage{
-		pool: pool,
+		Pool: pool,
 	}, nil
 }
 
@@ -75,7 +75,7 @@ func applyMigrations() error {
 func (r *DBStorage) Create(ctx context.Context, login, passwordHash string) (int64, error) {
 	var id int64
 
-	err := r.pool.QueryRow(
+	err := r.Pool.QueryRow(
 		ctx,
 		"INSERT INTO users (login, password_hash, created_at) VALUES ($1, $2, $3) RETURNING id",
 		login,
@@ -104,7 +104,7 @@ func (r *DBStorage) FindByLogin(ctx context.Context, login string) (*model.User,
 
 	var u model.User
 
-	err := r.pool.QueryRow(ctx, query, login).Scan(&u.ID, &u.Login, &u.PasswordHash, &u.CreatedAt)
+	err := r.Pool.QueryRow(ctx, query, login).Scan(&u.ID, &u.Login, &u.PasswordHash, &u.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -120,7 +120,7 @@ func (r *DBStorage) FindByLogin(ctx context.Context, login string) (*model.User,
 func (r *DBStorage) FindUserByOrderNumber(ctx context.Context, orderNumber string) (int64, error) {
 	var userID int64
 
-	err := r.pool.QueryRow(ctx, `SELECT user_id FROM orders WHERE number = $1`, orderNumber).
+	err := r.Pool.QueryRow(ctx, `SELECT user_id FROM orders WHERE number = $1`, orderNumber).
 		Scan(&userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -137,11 +137,11 @@ func (r *DBStorage) FindUserByOrderNumber(ctx context.Context, orderNumber strin
 func (r *DBStorage) SaveOrder(ctx context.Context, userID int64, orderNumber string) error {
 	query := `INSERT INTO orders (user_id, number, status) VALUES ($1, $2, 'NEW')`
 
-	_, err := r.pool.Exec(ctx, query, userID, orderNumber)
+	_, err := r.Pool.Exec(ctx, query, userID, orderNumber)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
 			var conflictUserID int64
-			_ = r.pool.QueryRow(ctx, `SELECT user_id FROM orders WHERE number = $1`, orderNumber).
+			_ = r.Pool.QueryRow(ctx, `SELECT user_id FROM orders WHERE number = $1`, orderNumber).
 				Scan(&conflictUserID)
 
 			if conflictUserID == userID {
@@ -166,7 +166,7 @@ func (r *DBStorage) GetOrders(ctx context.Context, userID int64) ([]model.OrderR
         ORDER BY uploaded_at DESC
     `
 
-	rows, err := r.pool.Query(ctx, query, userID)
+	rows, err := r.Pool.Query(ctx, query, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -218,7 +218,7 @@ func (r *DBStorage) GetBalance(ctx context.Context, userID int64) (model.Balance
 
 	query := `SELECT current_balance, total_withdrawn FROM users WHERE id = $1`
 
-	err := r.pool.QueryRow(ctx, query, userID).Scan(&current, &withdrawn)
+	err := r.Pool.QueryRow(ctx, query, userID).Scan(&current, &withdrawn)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			current, withdrawn = 0, 0
@@ -234,7 +234,7 @@ func (r *DBStorage) GetBalance(ctx context.Context, userID int64) (model.Balance
 
 // Withdraw do withdraw.
 func (r *DBStorage) Withdraw(ctx context.Context, userID int64, wReq model.WithdrawRequest) error {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -290,7 +290,7 @@ func (r *DBStorage) GetWithdrawals(
         ORDER BY processed_at DESC
     `
 
-	rows, err := r.pool.Query(ctx, query, userID)
+	rows, err := r.Pool.Query(ctx, query, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +337,7 @@ func (r *DBStorage) FetchPendingOrders(ctx context.Context) ([]model.PendingOrde
         FOR UPDATE SKIP LOCKED
     `
 
-	rows, err := r.pool.Query(ctx, query, model.StatusNew, model.StatusProcessing, orderBatchSize)
+	rows, err := r.Pool.Query(ctx, query, model.StatusNew, model.StatusProcessing, orderBatchSize)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +363,7 @@ func (r *DBStorage) FetchPendingOrders(ctx context.Context) ([]model.PendingOrde
 
 // UpdateOrderStatus update order status.
 func (r *DBStorage) UpdateOrderStatus(ctx context.Context, id int64, s string) error {
-	_, err := r.pool.Exec(ctx, `
+	_, err := r.Pool.Exec(ctx, `
         UPDATE orders
         SET status = $1
         WHERE id = $2
@@ -382,7 +382,7 @@ func (r *DBStorage) ApplyAccrual(
 	userID int64,
 	accrual *float64,
 ) error {
-	tx, err := r.pool.Begin(ctx)
+	tx, err := r.Pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -430,7 +430,7 @@ func (r *DBStorage) GetOrderStatusByID(
 
 	var os model.OrderStatusResponse
 
-	err := r.pool.QueryRow(ctx, query, id).Scan(&os.Status)
+	err := r.Pool.QueryRow(ctx, query, id).Scan(&os.Status)
 	if err != nil {
 		return nil, err
 	}

@@ -42,7 +42,7 @@ func TestDBStorage_Create(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
 
 	id, err := storage.Create(ctx, "creatoruser1", "hash1")
 	require.NoError(t, err)
@@ -58,11 +58,11 @@ func TestDBStorage_FindByLogin(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
 
 	userName := "findbyloginuser1"
 
-	_, err := storage.pool.Exec(ctx,
+	_, err := storage.Pool.Exec(ctx,
 		"INSERT INTO users (login, password_hash, created_at) VALUES ($1, $2, $3)",
 		userName, "somehash", time.Now(),
 	)
@@ -82,8 +82,8 @@ func TestDBStorage_FindUserByOrderNumber(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM orders")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM orders")
 
 	userID1, err := storage.Create(ctx, "finduser1", "hash1")
 	require.NoError(t, err)
@@ -112,8 +112,8 @@ func TestDBStorage_SaveOrder(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM orders")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM orders")
 
 	userID, _ := storage.Create(ctx, "saveruser1", "hash2")
 	otherUserID, _ := storage.Create(ctx, "saveruser2", "hash3")
@@ -132,15 +132,15 @@ func TestDBStorage_GetOrders(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM orders")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM orders")
 
 	userID, _ := storage.Create(ctx, "getterorder", "hash4")
 
 	orderNumber1 := "GET-ORD-1"
 	orderNumber2 := "GET-ORD-2"
 
-	_, err := storage.pool.Exec(ctx,
+	_, err := storage.Pool.Exec(ctx,
 		`INSERT INTO orders (user_id, number, status, accrual, uploaded_at) VALUES
 		 ($1, $2, 'NEW', NULL, NOW() - INTERVAL '10 seconds'),
 		 ($1, $3, 'PROCESSED', 10.5, NOW() - INTERVAL '5 seconds')`,
@@ -163,7 +163,7 @@ func TestDBStorage_GetBalance(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
 
 	userID, _ := storage.Create(ctx, "getbalancerzero", "hash5")
 
@@ -173,7 +173,7 @@ func TestDBStorage_GetBalance(t *testing.T) {
 
 	var userID2 int64
 
-	err = storage.pool.QueryRow(
+	err = storage.Pool.QueryRow(
 		ctx,
 		`INSERT INTO users (login, password_hash, created_at, current_balance, total_withdrawn) 
 				VALUES ($1, $2, $3, $4, $5) RETURNING id`,
@@ -194,13 +194,13 @@ func TestDBStorage_Withdraw(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM withdrawals")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM withdrawals")
 
 	userID, err := storage.Create(ctx, "withdrawer", "hash")
 	require.NoError(t, err)
 
-	_, err = storage.pool.Exec(ctx,
+	_, err = storage.Pool.Exec(ctx,
 		`UPDATE users SET current_balance = $1, total_withdrawn = $2 WHERE id = $3`,
 		100.0, 0.0, userID,
 	)
@@ -237,18 +237,18 @@ func TestDBStorage_GetOrderStatusByID(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM orders")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM orders")
 
 	userID, _ := storage.Create(ctx, "statususer", "hash")
-	_, _ = storage.pool.Exec(ctx,
+	_, _ = storage.Pool.Exec(ctx,
 		`INSERT INTO orders (user_id, number, status) VALUES ($1, $2, $3)`,
 		userID, "ORD-STATUS-1", model.StatusNew,
 	)
 
 	var orderID int64
 
-	err := storage.pool.QueryRow(ctx, `SELECT id FROM orders WHERE number = $1`, "ORD-STATUS-1").
+	err := storage.Pool.QueryRow(ctx, `SELECT id FROM orders WHERE number = $1`, "ORD-STATUS-1").
 		Scan(&orderID)
 	require.NoError(t, err)
 
@@ -265,21 +265,21 @@ func TestDBStorage_UpdateOrderStatus(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM orders")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM orders")
 
 	userID, _ := storage.Create(ctx, "statusupdater", "hash")
 
 	orderNumber := "ORD-UPDATE"
 
-	_, err := storage.pool.Exec(ctx,
+	_, err := storage.Pool.Exec(ctx,
 		`INSERT INTO orders (user_id, number, status) VALUES ($1, $2, $3)`,
 		userID, orderNumber, model.StatusNew,
 	)
 	require.NoError(t, err)
 
 	var orderID int64
-	err = storage.pool.QueryRow(ctx, `SELECT id FROM orders WHERE number = $1`, orderNumber).
+	err = storage.Pool.QueryRow(ctx, `SELECT id FROM orders WHERE number = $1`, orderNumber).
 		Scan(&orderID)
 	require.NoError(t, err)
 
@@ -295,14 +295,14 @@ func TestDBStorage_FetchPendingOrders(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM orders")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM orders")
 
 	userID, _ := storage.Create(ctx, "pendinguser", "hash")
 
 	oldTime := time.Now().Add(-10 * time.Second).UTC()
 
-	_, err := storage.pool.Exec(ctx,
+	_, err := storage.Pool.Exec(ctx,
 		`INSERT INTO orders (user_id, number, status, uploaded_at) VALUES
 		 ($1, $2, $3, $4),
 		 ($1, $5, $6, $4)`,
@@ -310,7 +310,7 @@ func TestDBStorage_FetchPendingOrders(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = storage.pool.Exec(ctx,
+	_, err = storage.Pool.Exec(ctx,
 		`INSERT INTO orders (user_id, number, status, uploaded_at) VALUES ($1, $2, $3, NOW())`,
 		userID, "P-3", model.StatusNew,
 	)
@@ -333,8 +333,8 @@ func TestDBStorage_ApplyAccrual(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM orders")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM orders")
 
 	userID, _ := storage.Create(ctx, "accrualuser", "hash")
 
@@ -342,7 +342,7 @@ func TestDBStorage_ApplyAccrual(t *testing.T) {
 
 	var orderID int64
 
-	err := storage.pool.QueryRow(ctx,
+	err := storage.Pool.QueryRow(ctx,
 		`INSERT INTO orders (user_id, number, status) VALUES ($1, $2, $3) RETURNING id`,
 		userID, orderNumber, model.StatusNew,
 	).Scan(&orderID)
@@ -361,7 +361,7 @@ func TestDBStorage_ApplyAccrual(t *testing.T) {
 	assert.Equal(t, float64(25.75), bal.Current)
 
 	var storedAccrual *float64
-	err = storage.pool.QueryRow(ctx, `SELECT accrual FROM orders WHERE id = $1`, orderID).
+	err = storage.Pool.QueryRow(ctx, `SELECT accrual FROM orders WHERE id = $1`, orderID).
 		Scan(&storedAccrual)
 
 	require.NoError(t, err)
@@ -372,8 +372,8 @@ func TestDBStorage_SaveOrder_DuplicateSameUser(t *testing.T) {
 	ctx := context.Background()
 	storage := setupTestDB(t)
 
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM users")
-	_, _ = storage.pool.Exec(ctx, "DELETE FROM orders")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM users")
+	_, _ = storage.Pool.Exec(ctx, "DELETE FROM orders")
 
 	userID, _ := storage.Create(ctx, "dupuser", "hash")
 	orderNumber := "ORD-DUP"

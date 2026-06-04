@@ -32,12 +32,16 @@ const (
 // Handler object.
 type Handler struct {
 	DB            *repository.DBStorage
-	AccrualClient *accrual.Client
+	AccrualClient accrual.AccrualClientInterface
 	locks         sync.Map
 }
 
 // NewHandler function.
-func NewHandler(ctx context.Context, db *repository.DBStorage, accClient *accrual.Client) *Handler {
+func NewHandler(
+	ctx context.Context,
+	db *repository.DBStorage,
+	accClient accrual.AccrualClientInterface,
+) *Handler {
 	handler := &Handler{
 		DB:            db,
 		AccrualClient: accClient,

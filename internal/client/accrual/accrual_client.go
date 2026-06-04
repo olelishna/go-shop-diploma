@@ -17,6 +17,10 @@ const (
 	retryDelay            = 1 * time.Second
 )
 
+type AccrualClientInterface interface {
+	GetAccrual(ctx context.Context, orderNumber string) (*model.AccrualResponse, error)
+}
+
 // Client for accrual system.
 type Client struct {
 	httpClient *http.Client
@@ -68,20 +72,22 @@ func (c *Client) GetAccrual(
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
-			retryAfter := parseRetryAfter(resp)
-			if retryAfter == 0 {
-				retryAfter = retryDelay
-			}
+			waitTime := parseRetryAfter(resp)
+			if waitTime <= 0 {
+				_ = resp.Body.Close()
 
-			resp.Body.Close()
-			cancel()
+				return nil, fmt.Errorf("invalid retry-after header")
+			}
 
 			select {
-			case <-reqCtx.Done():
-				return nil, fmt.Errorf("timeout while waiting for retry-after (%v)", retryAfter)
-			case <-time.After(retryAfter):
-				continue
+			case <-ctx.Done():
+				_ = resp.Body.Close()
+
+				return nil, fmt.Errorf("canceled during retry: %w", ctx.Err())
+			case <-time.After(waitTime):
 			}
+
+			continue
 		}
 
 		if resp.StatusCode >= http.StatusBadRequest {

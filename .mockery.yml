@@ -22,6 +22,6 @@ require-template-schema-exists: true
 template: testify
 template-schema: '{{.Template}}.schema.json'
 packages:
-  github.com/olelishna/go-shop-diploma/internal/repository:
+  github.com/olelishna/go-shop-diploma/internal/client/accrual:
     config:
       all: true
