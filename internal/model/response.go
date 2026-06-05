@@ -5,8 +5,8 @@ type ErrorResponse struct {
 }
 
 type BalanceResponse struct {
-	Current   float64 `json:"current"`
-	Withdrawn float64 `json:"withdrawn"`
+	Current   float64 `db:"current_balance" json:"current"`
+	Withdrawn float64 `db:"total_withdrawn" json:"withdrawn"`
 }
 
 type AccrualResponse struct {

@@ -492,6 +492,8 @@ func (h *Handler) GetWithdrawals(res http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		logger.Log.Error(err.Error(), zap.String("event", "get withdrawals"))
 		helper.SendJSONError(res, "Internal server error", http.StatusInternalServerError)
+
+		return
 	}
 
 	if len(withdrawals) == 0 {

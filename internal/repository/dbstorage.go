@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -73,15 +74,11 @@ func applyMigrations() error {
 
 // Create func creates new user.
 func (r *DBStorage) Create(ctx context.Context, login, passwordHash string) (int64, error) {
+	query := `INSERT INTO users (login, password_hash, created_at) VALUES ($1, $2, $3) RETURNING id`
+
 	var id int64
 
-	err := r.Pool.QueryRow(
-		ctx,
-		"INSERT INTO users (login, password_hash, created_at) VALUES ($1, $2, $3) RETURNING id",
-		login,
-		passwordHash,
-		time.Now().UTC(),
-	).Scan(&id)
+	err := pgxscan.Get(ctx, r.Pool, &id, query, login, passwordHash, time.Now().UTC())
 	if err != nil {
 		pgErr, ok := errors.AsType[*pgconn.PgError](err)
 		if ok && pgErr.Code == pgerrcode.UniqueViolation {
@@ -104,7 +101,7 @@ func (r *DBStorage) FindByLogin(ctx context.Context, login string) (*model.User,
 
 	var u model.User
 
-	err := r.Pool.QueryRow(ctx, query, login).Scan(&u.ID, &u.Login, &u.PasswordHash, &u.CreatedAt)
+	err := pgxscan.Get(ctx, r.Pool, &u, query, login)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -118,10 +115,11 @@ func (r *DBStorage) FindByLogin(ctx context.Context, login string) (*model.User,
 
 // FindUserByOrderNumber finds user and order status by order ID.
 func (r *DBStorage) FindUserByOrderNumber(ctx context.Context, orderNumber string) (int64, error) {
+	query := `SELECT user_id FROM orders WHERE number = $1`
+
 	var userID int64
 
-	err := r.Pool.QueryRow(ctx, `SELECT user_id FROM orders WHERE number = $1`, orderNumber).
-		Scan(&userID)
+	err := pgxscan.Get(ctx, r.Pool, &userID, query, orderNumber)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
@@ -140,9 +138,14 @@ func (r *DBStorage) SaveOrder(ctx context.Context, userID int64, orderNumber str
 	_, err := r.Pool.Exec(ctx, query, userID, orderNumber)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique constraint") {
+			querySelect := `SELECT user_id FROM orders WHERE number = $1`
+
 			var conflictUserID int64
-			_ = r.Pool.QueryRow(ctx, `SELECT user_id FROM orders WHERE number = $1`, orderNumber).
-				Scan(&conflictUserID)
+
+			err = pgxscan.Get(ctx, r.Pool, &conflictUserID, querySelect, orderNumber)
+			if err != nil {
+				return err
+			}
 
 			if conflictUserID == userID {
 				return nil
@@ -214,22 +217,20 @@ func (r *DBStorage) GetOrders(ctx context.Context, userID int64) ([]model.OrderR
 
 // GetBalance get current balance of user.
 func (r *DBStorage) GetBalance(ctx context.Context, userID int64) (model.BalanceResponse, error) {
-	var current, withdrawn float64
-
 	query := `SELECT current_balance, total_withdrawn FROM users WHERE id = $1`
 
-	err := r.Pool.QueryRow(ctx, query, userID).Scan(&current, &withdrawn)
+	var balanceResp model.BalanceResponse
+
+	err := pgxscan.Get(ctx, r.Pool, &balanceResp, query, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			current, withdrawn = 0, 0
-		} else {
-			return model.BalanceResponse{}, err
+			return model.BalanceResponse{Current: 0, Withdrawn: 0}, nil
 		}
+
+		return model.BalanceResponse{}, err
 	}
 
-	resp := model.BalanceResponse{Current: current, Withdrawn: withdrawn}
-
-	return resp, nil
+	return balanceResp, nil
 }
 
 // Withdraw do withdraw.
@@ -430,7 +431,7 @@ func (r *DBStorage) GetOrderStatusByID(
 
 	var os model.OrderStatusResponse
 
-	err := r.Pool.QueryRow(ctx, query, id).Scan(&os.Status)
+	err := pgxscan.Get(ctx, r.Pool, &os, query, id)
 	if err != nil {
 		return nil, err
 	}
