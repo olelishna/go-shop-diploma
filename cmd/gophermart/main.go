@@ -91,7 +91,6 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
 
 	dbs, err := repository.NewDBStorage(pool)
 	if err != nil {
@@ -121,6 +120,9 @@ func run(ctx context.Context) error {
 		stop()
 
 		logger.Log.Info("going to shutdown server")
+
+		hand.Shutdown()
+		pool.Close()
 
 		tCtx, cancelFn := context.WithTimeout(gCtx, ShutdownTimeout)
 		defer cancelFn()

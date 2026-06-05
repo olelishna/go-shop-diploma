@@ -34,6 +34,7 @@ type Handler struct {
 	DB            *repository.DBStorage
 	AccrualClient accrual.AccrualClientInterface
 	locks         sync.Map
+	wg            sync.WaitGroup
 }
 
 // NewHandler function.
@@ -47,11 +48,30 @@ func NewHandler(
 		AccrualClient: accClient,
 	}
 
+	wCtx, cancel := context.WithCancel(ctx)
+
+	handler.wg.Add(updateOrdersWorkerCount)
+
 	for w := 1; w <= updateOrdersWorkerCount; w++ {
-		go handler.processOrders(ctx, w)
+		go func(id int) {
+			defer handler.wg.Done()
+			handler.processOrders(wCtx, id)
+		}(w)
 	}
 
+	db.CancelFuncs = append(db.CancelFuncs, cancel)
+
 	return handler
+}
+
+func (h *Handler) Shutdown() {
+	for _, cancel := range h.DB.CancelFuncs {
+		cancel()
+	}
+
+	logger.Log.Info("handler shutdown executed")
+
+	h.wg.Wait()
 }
 
 // Register регистрация пользователя.
@@ -527,17 +547,16 @@ func (h *Handler) processOrders(ctx context.Context, id int) {
 		default:
 		}
 
-		orders, err := h.DB.FetchPendingOrders(ctx)
-		if err != nil {
-			logger.Log.Error(
-				fmt.Sprintf("failed to fetch pending orders: %v", err),
-				zap.String("event", "process orders"),
-			)
+		for order, err := range h.DB.FetchPendingOrders(ctx) {
+			if err != nil {
+				logger.Log.Error(
+					fmt.Sprintf("failed to fetch pending orders: %v", err),
+					zap.String("event", "process orders"),
+				)
 
-			continue
-		}
+				continue
+			}
 
-		for _, order := range orders {
 			h.processOrder(ctx, order)
 
 			time.Sleep(accrualRequestDelayTime)
@@ -561,7 +580,11 @@ func (h *Handler) processOrder(ctx context.Context, order model.PendingOrderResp
 	// Double-check: статус мог измениться между fetch и блокировкой
 	current, err := h.DB.GetOrderStatusByID(ctx, order.ID)
 	if err != nil {
-		logger.Log.Error(
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+
+		logger.Log.Warn(
 			fmt.Sprintf("failed to reload order %s after lock: %v", order.Number, err),
 			zap.String("event", "process order"),
 		)

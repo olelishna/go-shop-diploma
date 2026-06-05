@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"iter"
 	"strings"
 	"time"
 
@@ -29,7 +30,8 @@ var (
 
 // DBStorage db storage.
 type DBStorage struct {
-	Pool *pgxpool.Pool
+	Pool        *pgxpool.Pool
+	CancelFuncs []context.CancelFunc
 }
 
 // NewDBStorage func to create DB connection.
@@ -327,7 +329,9 @@ func (r *DBStorage) GetWithdrawals(
 }
 
 // FetchPendingOrders get all unprocessed orders to check status.
-func (r *DBStorage) FetchPendingOrders(ctx context.Context) ([]model.PendingOrderResponse, error) {
+func (r *DBStorage) FetchPendingOrders(
+	ctx context.Context,
+) iter.Seq2[model.PendingOrderResponse, error] {
 	query := `
         SELECT id, number, status, user_id, uploaded_at
         FROM orders
@@ -338,28 +342,38 @@ func (r *DBStorage) FetchPendingOrders(ctx context.Context) ([]model.PendingOrde
         FOR UPDATE SKIP LOCKED
     `
 
-	rows, err := r.Pool.Query(ctx, query, model.StatusNew, model.StatusProcessing, orderBatchSize)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+	return func(yield func(model.PendingOrderResponse, error) bool) {
+		rows, err := r.Pool.Query(
+			ctx,
+			query,
+			model.StatusNew,
+			model.StatusProcessing,
+			orderBatchSize,
+		)
+		if err != nil {
+			yield(model.PendingOrderResponse{}, err)
 
-	var orders []model.PendingOrderResponse
+			return
+		}
+		defer rows.Close()
 
-	for rows.Next() {
-		var o model.PendingOrderResponse
-		if err := rows.Scan(&o.ID, &o.Number, &o.Status, &o.UserID, &o.UploadedAt); err != nil {
-			return nil, err
+		for rows.Next() {
+			var o model.PendingOrderResponse
+			if err = rows.Scan(&o.ID, &o.Number, &o.Status, &o.UserID, &o.UploadedAt); err != nil {
+				yield(model.PendingOrderResponse{}, err)
+
+				return
+			}
+
+			if !yield(o, nil) {
+				return
+			}
 		}
 
-		orders = append(orders, o)
+		if err = rows.Err(); err != nil {
+			yield(model.PendingOrderResponse{}, err)
+		}
 	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return orders, nil
 }
 
 // UpdateOrderStatus update order status.

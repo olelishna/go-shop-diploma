@@ -316,7 +316,14 @@ func TestDBStorage_FetchPendingOrders(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	orders, err := storage.FetchPendingOrders(ctx)
+	var orders []model.PendingOrderResponse
+
+	for order, err := range storage.FetchPendingOrders(ctx) {
+		require.NoError(t, err)
+
+		orders = append(orders, order)
+	}
+
 	require.NoError(t, err)
 	require.Len(t, orders, 2)
 
