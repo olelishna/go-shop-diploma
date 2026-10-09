@@ -10,6 +10,7 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+coverage.html
 
 # Binaries
 cmd/gophermart/main
@@ -21,3 +22,8 @@ vendor/
 # IDEs directories
 .idea
 .vscode
+
+postgres_data/*
+init.sql
+
+.env
